@@ -1,0 +1,24 @@
+{
+  "name": "back2u",
+  "version": "1.0.0",
+  "description": "Back2U - AI-Powered Lost & Found Recovery Platform",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "lint": "npm --prefix frontend run lint",
+    "preview": "npm --prefix frontend run preview",
+    "frontend": "npm --prefix frontend run dev",
+    "backend": "cd backend && venv\\Scripts\\uvicorn app.main:app --reload",
+    "install:all": "npm --prefix frontend install"
+  },
+  "keywords": [
+    "back2u",
+    "lost-and-found",
+    "ai",
+    "fastapi",
+    "react"
+  ],
+  "author": "",
+  "license": "ISC"
+}
