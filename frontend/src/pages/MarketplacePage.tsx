@@ -6,6 +6,7 @@ import {
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { AuctionListing, RequestToBuy } from '../types';
+import { formatImageUrl } from '../utils/image';
 
 export const MarketplacePage: React.FC = () => {
   const { user, isAuthenticated, refreshUser } = useAuth();
@@ -106,7 +107,7 @@ export const MarketplacePage: React.FC = () => {
                 <div className="relative aspect-video bg-[#070D1B] flex items-center justify-center p-4">
                   {auction.item_image_url ? (
                     <img
-                      src={auction.item_image_url}
+                      src={formatImageUrl(auction.item_image_url)}
                       alt={auction.item_title}
                       className="w-full h-full object-contain"
                     />
