@@ -73,6 +73,24 @@ def demo_login(req: DemoLoginRequest, db: Session = Depends(get_db)):
     token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
     return {"access_token": token, "token_type": "bearer", "user": user}
 
+@router.post("/firebase-login", response_model=TokenResponse)
+def firebase_login(req: FirebaseLoginRequest, db: Session = Depends(get_db)):
+    """
+    Authenticates with verified Firebase ID token and returns application session.
+    """
+    from app.services.auth_service import verify_firebase_or_jwt_token
+    user = verify_firebase_or_jwt_token(req.id_token, db)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or unverified Firebase ID token"
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled")
+
+    token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
+    return {"access_token": token, "token_type": "bearer", "user": user}
+
 @router.get("/me", response_model=UserResponse)
 def get_current_user_profile(current_user: User = Depends(get_current_user)):
     return current_user

@@ -1,4 +1,4 @@
-from app.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse, DemoLoginRequest
+from app.schemas.user import UserCreate, UserLogin, UserResponse, TokenResponse, DemoLoginRequest, FirebaseLoginRequest
 from app.schemas.item import ItemCreate, ItemUpdate, ItemPublicResponse, ItemDetailResponse, ItemSearchFilter
 from app.schemas.claim import ClaimCreate, ClaimStatusUpdate, HandoverConfirm, ClaimResponse
 from app.schemas.reward import PointTransactionResponse, RewardsSummaryResponse
@@ -10,6 +10,7 @@ __all__ = [
     "UserResponse",
     "TokenResponse",
     "DemoLoginRequest",
+    "FirebaseLoginRequest",
     "ItemCreate",
     "ItemUpdate",
     "ItemPublicResponse",

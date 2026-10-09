@@ -12,18 +12,35 @@ from app.models.user import User
 
 security = HTTPBearer(auto_error=False)
 
+# Initialize Firebase Admin SDK if credentials exist
+firebase_initialized = False
+try:
+    import firebase_admin
+    from firebase_admin import credentials, auth as fb_auth
+
+    if settings.FIREBASE_CREDENTIALS_PATH and os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
+        cred = credentials.Certificate(settings.FIREBASE_CREDENTIALS_PATH)
+        firebase_admin.initialize_app(cred)
+        firebase_initialized = True
+        print("[Firebase Admin] Initialized with credentials certificate.")
+    elif os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and os.path.exists(os.getenv("GOOGLE_APPLICATION_CREDENTIALS")):
+        firebase_admin.initialize_app()
+        firebase_initialized = True
+        print("[Firebase Admin] Initialized with application default credentials.")
+    else:
+        print("[Firebase Admin] No serviceAccountKey.json detected. Local JWT fallback active.")
+except Exception as e:
+    print(f"[Firebase Admin] Initialization skipped: {e}")
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     if not hashed_password:
         return False
     try:
-        # Standard bcrypt check
         return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
     except Exception:
-        # Fallback simple compare if plain text demo password
         return plain_password == hashed_password
 
 def get_password_hash(password: str) -> str:
-    # Truncate to 72 bytes if necessary to conform to bcrypt standard
     pw_bytes = password.encode('utf-8')[:72]
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(pw_bytes, salt).decode('utf-8')
@@ -41,19 +58,39 @@ def verify_firebase_or_jwt_token(token: str, db: Session) -> Optional[User]:
     """
     Verifies either a Firebase ID Token (via Admin SDK) or Back2U Bearer JWT.
     """
-    if settings.FIREBASE_CREDENTIALS_PATH and os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
+    # 1. Try Firebase Admin ID Token verification if configured
+    if firebase_initialized:
         try:
-            import firebase_admin
             from firebase_admin import auth as fb_auth
             decoded = fb_auth.verify_id_token(token)
             uid = decoded.get("uid")
             email = decoded.get("email")
-            user = db.query(User).filter((User.firebase_uid == uid) | (User.email == email)).first()
-            if user:
-                return user
-        except Exception:
-            pass
+            name = decoded.get("name") or email.split("@")[0]
 
+            user = db.query(User).filter((User.firebase_uid == uid) | (User.email == email)).first()
+            if not user:
+                # Provision new user profile in PostgreSQL
+                user = User(
+                    firebase_uid=uid,
+                    email=email,
+                    full_name=name,
+                    role="user",
+                    trust_score=100,
+                    penalty_points=0,
+                    points_balance=100
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
+            elif not user.firebase_uid:
+                user.firebase_uid = uid
+                db.commit()
+                db.refresh(user)
+            return user
+        except Exception:
+            pass # Fall through to local JWT check
+
+    # 2. Local JWT Bearer Token verification
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id = payload.get("sub")

@@ -17,6 +17,9 @@ class UserLogin(BaseModel):
 class DemoLoginRequest(BaseModel):
     role: str # 'admin', 'user', 'finder', 'owner'
 
+class FirebaseLoginRequest(BaseModel):
+    id_token: str
+
 class UserResponse(UserBase):
     id: int
     role: str
