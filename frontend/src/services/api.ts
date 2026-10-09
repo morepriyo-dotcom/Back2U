@@ -38,6 +38,16 @@ export const api = {
   register: (data: any) => request<any>('/api/auth/register', { method: 'POST', body: JSON.stringify(data) }),
   login: (data: any) => request<any>('/api/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   demoLogin: (role: string) => request<any>('/api/auth/demo-login', { method: 'POST', body: JSON.stringify({ role }) }),
+  sendPhoneOTP: (phone_number: string) =>
+    request<{ message: string; phone_number: string; expires_in_seconds: number; dev_sms_simulation?: string }>(
+      '/api/auth/phone/send-otp',
+      { method: 'POST', body: JSON.stringify({ phone_number }) }
+    ),
+  verifyPhoneOTP: (phone_number: string, otp_code: string, full_name?: string) =>
+    request<any>('/api/auth/phone/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ phone_number, otp_code, full_name }),
+    }),
   getMe: () => request<any>('/api/auth/me'),
 
   // Items
@@ -48,6 +58,16 @@ export const api = {
     });
     return request<any[]>(`/api/items?${query.toString()}`);
   },
+  getPaginatedItems: (params: Record<string, any> = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') query.append(key, String(val));
+    });
+    return request<{ items: any[]; total_count: number; page: number; limit: number; total_pages: number }>(
+      `/api/items/paginated?${query.toString()}`
+    );
+  },
+  getOfficialCertificate: (id: number) => request<any>(`/api/items/${id}/certificate`),
   getRecentItems: () => request<{ recently_lost: any[]; recently_found: any[] }>('/api/items/recent'),
   getItemDetail: (id: number) => request<any>(`/api/items/${id}`),
   createItem: (data: any) => request<any>('/api/items', { method: 'POST', body: JSON.stringify(data) }),

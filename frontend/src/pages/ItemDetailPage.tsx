@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { 
   MapPin, Clock, Tag, ShieldCheck, AlertCircle, Sparkles, 
-  DollarSign, ChevronLeft, Lock, CheckCircle2, User, Eye, EyeOff
+  DollarSign, ChevronLeft, Lock, CheckCircle2, User, Eye, EyeOff,
+  FileText, Printer, QrCode
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Item, AIMatchCandidate } from '../types';
+import { Item, AIMatchCandidate, OfficialCertificate } from '../types';
 import { formatImageUrl } from '../utils/image';
 
 export const ItemDetailPage: React.FC = () => {
@@ -35,6 +36,25 @@ export const ItemDetailPage: React.FC = () => {
   const [buyMessage, setBuyMessage] = useState('');
   const [submittingBuy, setSubmittingBuy] = useState(false);
   const [buySuccess, setBuySuccess] = useState(false);
+
+  // Digital Certificate State
+  const [showCertModal, setShowCertModal] = useState(false);
+  const [certData, setCertData] = useState<OfficialCertificate | null>(null);
+  const [loadingCert, setLoadingCert] = useState(false);
+
+  const handleViewCertificate = async () => {
+    if (!item) return;
+    setLoadingCert(true);
+    try {
+      const data = await api.getOfficialCertificate(item.id);
+      setCertData(data);
+      setShowCertModal(true);
+    } catch (err: any) {
+      alert(err.message || 'Failed to load official certificate');
+    } finally {
+      setLoadingCert(false);
+    }
+  };
 
   useEffect(() => {
     const fetchItem = async () => {
@@ -200,9 +220,17 @@ export const ItemDetailPage: React.FC = () => {
               {item.title}
             </h1>
 
-            <div className="flex items-center gap-2 text-xs text-slate-400 pt-1">
-              <MapPin className="w-3.5 h-3.5 text-blue-400" />
-              <span>Location: {item.location_name}</span>
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1">
+              <div className="flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-blue-400" />
+                <span>Location: {item.location_name}</span>
+              </div>
+              {item.lr_number && (
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-950/70 border border-blue-500/30 font-mono text-[11px] text-blue-300">
+                  <FileText className="w-3 h-3 text-blue-400" />
+                  <span>LR: <strong className="text-white">{item.lr_number}</strong></span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -276,6 +304,16 @@ export const ItemDetailPage: React.FC = () => {
             >
               <Sparkles className="w-3.5 h-3.5 text-blue-400" />
               {loadingMatches ? 'Running AI Matching...' : 'Run AI Match Scan'}
+            </button>
+
+            {/* View / Print Official LR Certificate */}
+            <button
+              onClick={handleViewCertificate}
+              disabled={loadingCert}
+              className="px-5 py-2.5 rounded-full text-xs font-semibold text-amber-300 bg-amber-950/40 border border-amber-500/30 hover:bg-amber-900/40 transition-all flex items-center gap-2"
+            >
+              <FileText className="w-3.5 h-3.5 text-amber-400" />
+              {loadingCert ? 'Generating Certificate...' : 'Official LR Certificate'}
             </button>
 
           </div>
@@ -564,6 +602,146 @@ export const ItemDetailPage: React.FC = () => {
                 </div>
               </form>
             )}
+
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          DIGITAL LOST REPORT / POLICE INTIMATION CERTIFICATE MODAL
+         ========================================================================= */}
+      {showCertModal && certData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in overflow-y-auto">
+          <div className="relative w-full max-w-2xl rounded-2xl bg-[#091224] border border-blue-500/50 shadow-2xl p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto print:border-none print:shadow-none print:bg-white print:text-black">
+            
+            {/* Top Bar / Print Controls */}
+            <div className="flex items-center justify-between pb-3 border-b border-blue-900/40 print:hidden">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-amber-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-300">
+                  Official Statutory Intimation Certificate
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-300 bg-blue-900/40 border border-blue-500/30 hover:bg-blue-800/40 flex items-center gap-1.5 transition-colors"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print / Save PDF
+                </button>
+                <button
+                  onClick={() => setShowCertModal(false)}
+                  className="text-slate-400 hover:text-white text-xs px-2 py-1"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Certificate Document Content */}
+            <div className="bg-[#050B17] border border-blue-800/40 rounded-xl p-6 space-y-5 print:bg-white print:border-black print:text-black">
+              
+              {/* Header Emblem / Title */}
+              <div className="text-center space-y-1 pb-4 border-b border-blue-900/50 print:border-black">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-950/80 border border-blue-500/40 mb-1 mx-auto">
+                  <ShieldCheck className="w-6 h-6 text-blue-400" />
+                </div>
+                <h2 className="text-base sm:text-lg font-black tracking-wide text-white uppercase print:text-black">
+                  Digital Lost Article Intimation Certificate
+                </h2>
+                <p className="text-[11px] text-slate-400 print:text-slate-600">
+                  Issued under the Centralised Civil Property & Lost Article Recovery Framework
+                </p>
+                <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
+                  <span className="text-xs font-mono font-bold px-3 py-1 rounded bg-blue-900/40 text-blue-300 border border-blue-500/30 print:border-black print:text-black">
+                    LR No: {certData.lr_number}
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    Date: {new Date(certData.reported_date).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Core Details Grid */}
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="p-3 rounded-lg bg-[#0A1224]/80 border border-blue-900/30 space-y-1 print:bg-transparent print:border-slate-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Article Title</span>
+                  <div className="font-semibold text-white print:text-black">{certData.title}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0A1224]/80 border border-blue-900/30 space-y-1 print:bg-transparent print:border-slate-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Category & Type</span>
+                  <div className="font-semibold text-white print:text-black">{certData.category} ({certData.report_type})</div>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0A1224]/80 border border-blue-900/30 space-y-1 print:bg-transparent print:border-slate-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Incident Location</span>
+                  <div className="font-semibold text-white print:text-black">{certData.location_name}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0A1224]/80 border border-blue-900/30 space-y-1 print:bg-transparent print:border-slate-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Incident Date</span>
+                  <div className="font-semibold text-white print:text-black">{new Date(certData.incident_date).toLocaleDateString()}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0A1224]/80 border border-blue-900/30 space-y-1 print:bg-transparent print:border-slate-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Custody / Status</span>
+                  <div className="font-semibold text-emerald-400 print:text-black">{certData.custody_status} • {certData.status}</div>
+                </div>
+                <div className="p-3 rounded-lg bg-[#0A1224]/80 border border-blue-900/30 space-y-1 print:bg-transparent print:border-slate-300">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">Reporter / Complainant</span>
+                  <div className="font-semibold text-white print:text-black">{certData.reporter_name}</div>
+                </div>
+              </div>
+
+              {certData.masked_identifier && (
+                <div className="p-3 rounded-lg bg-blue-950/40 border border-blue-600/30 text-xs flex items-center justify-between">
+                  <span className="text-slate-400">Masked Identity / Document Number:</span>
+                  <span className="font-mono font-bold text-amber-300 print:text-black">{certData.masked_identifier}</span>
+                </div>
+              )}
+
+              {/* Statutory Legal Notice */}
+              <div className="p-3 rounded-lg bg-amber-950/20 border border-amber-600/30 text-[11px] text-amber-200/90 leading-relaxed space-y-1 print:bg-transparent print:text-black print:border-black">
+                <div className="font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  Statutory Non-Cognizable Intimation Notice
+                </div>
+                <p>{certData.legal_statutory_notice}</p>
+              </div>
+
+              {/* Next Steps / Protocol */}
+              <div className="space-y-1 text-xs">
+                <span className="font-bold text-slate-300 uppercase tracking-wider text-[10px]">
+                  Statutory Instructions & Next Steps:
+                </span>
+                <ul className="list-disc pl-4 space-y-1 text-slate-400 text-[11px] print:text-black">
+                  {certData.guidelines_and_next_steps.map((step, idx) => (
+                    <li key={idx}>{step}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* SHA-256 Digital Verification Stamp */}
+              <div className="pt-3 border-t border-blue-900/40 flex items-center justify-between text-[10px] text-slate-400 print:border-black print:text-black">
+                <div className="space-y-0.5">
+                  <div className="font-mono uppercase font-bold text-blue-400 print:text-black">Digitally Verified Hash (SHA-256):</div>
+                  <div className="font-mono text-slate-400 text-[9px] break-all max-w-sm">{certData.verification_hash}</div>
+                </div>
+                <div className="flex items-center gap-1 text-emerald-400 font-mono font-semibold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  AUTHENTICATED
+                </div>
+              </div>
+
+            </div>
+
+            <div className="flex justify-end print:hidden">
+              <button
+                type="button"
+                onClick={() => setShowCertModal(false)}
+                className="px-5 py-2 rounded-xl text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700"
+              >
+                Close Certificate
+              </button>
+            </div>
 
           </div>
         </div>

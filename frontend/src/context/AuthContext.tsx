@@ -11,6 +11,8 @@ interface AuthContextType {
   login: (data: any) => Promise<void>;
   register: (data: any) => Promise<void>;
   demoLogin: (role: string) => Promise<void>;
+  sendPhoneOTP: (phone: string) => Promise<{ message: string; phone_number: string; expires_in_seconds: number; dev_sms_simulation?: string }>;
+  verifyPhoneOTP: (phone: string, otp: string, fullName?: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -82,6 +84,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const sendPhoneOTP = async (phone: string) => {
+    return await api.sendPhoneOTP(phone);
+  };
+
+  const verifyPhoneOTP = async (phone: string, otp: string, fullName?: string) => {
+    setIsLoading(true);
+    try {
+      const res = await api.verifyPhoneOTP(phone, otp, fullName);
+      setAuthToken(res.access_token);
+      setToken(res.access_token);
+      setUser(res.user);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = () => {
     removeAuthToken();
     setToken(null);
@@ -99,6 +117,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         demoLogin,
+        sendPhoneOTP,
+        verifyPhoneOTP,
         logout,
         refreshUser,
       }}

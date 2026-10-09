@@ -2,7 +2,10 @@ export type UserRole = 'visitor' | 'user' | 'admin';
 
 export interface User {
   id: number;
-  email: string;
+  email?: string;
+  phone_number?: string;
+  is_phone_verified?: boolean;
+  is_email_verified?: boolean;
   full_name: string;
   avatar_url?: string;
   role: UserRole;
@@ -49,6 +52,10 @@ export interface Item {
   model?: string;
   custody_status: CustodyStatus;
   status: ItemStatus;
+  lr_number?: string;
+  is_govt_id?: boolean;
+  govt_id_type?: string;
+  masked_identifier?: string;
   is_demo_seed: boolean;
   is_flagged?: boolean;
   flag_reason?: string;
@@ -58,6 +65,33 @@ export interface Item {
   reporter_trust_score?: number;
   private_clues?: string;
   has_private_clues?: boolean;
+}
+
+export interface OfficialCertificate {
+  lr_number: string;
+  item_id: number;
+  report_type: ReportType;
+  title: string;
+  category: string;
+  description: string;
+  location_name: string;
+  incident_date: string;
+  reported_date: string;
+  reporter_name: string;
+  masked_identifier?: string;
+  custody_status: string;
+  status: string;
+  verification_hash: string;
+  legal_statutory_notice: string;
+  guidelines_and_next_steps: string[];
+}
+
+export interface PaginatedItemsResponse {
+  items: Item[];
+  total_count: number;
+  page: number;
+  limit: number;
+  total_pages: number;
 }
 
 export interface AIMatchSignal {

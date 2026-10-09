@@ -8,7 +8,10 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     firebase_uid = Column(String(128), unique=True, index=True, nullable=True)
-    email = Column(String(255), unique=True, index=True, nullable=False)
+    email = Column(String(255), unique=True, index=True, nullable=True)
+    phone_number = Column(String(20), unique=True, index=True, nullable=True)
+    is_phone_verified = Column(Boolean, default=False)
+    is_email_verified = Column(Boolean, default=False)
     hashed_password = Column(String(255), nullable=True)
     full_name = Column(String(150), nullable=False)
     avatar_url = Column(String(500), nullable=True)

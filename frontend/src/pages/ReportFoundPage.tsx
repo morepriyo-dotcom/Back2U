@@ -149,6 +149,17 @@ export const ReportFoundPage: React.FC = () => {
         </p>
       </div>
 
+      {/* Statutory Finder Declaration (Indian Contract Act Sec 168/169) */}
+      <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 flex items-start gap-3.5 text-xs text-slate-300">
+        <Shield className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <strong className="text-emerald-300 block">Finder Rights & Responsibilities (Indian Contract Act, 1872):</strong>
+          <p className="leading-relaxed text-slate-300">
+            Under Section 71 and Section 168 of the Indian Contract Act, a finder of lost goods is treated as a <em>quasi-bailee</em> with a legal duty of reasonable care. You possess the right of retention until lawful expenses or promised rewards (+150 Back2U Points) are reimbursed upon true owner verification.
+          </p>
+        </div>
+      </div>
+
       {/* Form Card */}
       <form
         onSubmit={handleSubmit(onSubmit)}
