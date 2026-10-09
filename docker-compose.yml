@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: back2u-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: back2u
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: back2u-backend
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://postgres:postgrespassword@db:5432/back2u
+      SECRET_KEY: back2u_production_jwt_secret_key_2026
+      WEIGHT_IMAGE: 0.40
+      WEIGHT_TEXT: 0.35
+      WEIGHT_LOCATION: 0.15
+      WEIGHT_DATE: 0.10
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    volumes:
+      - ./backend/uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: back2u-frontend
+    restart: always
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
