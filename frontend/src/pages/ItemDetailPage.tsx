@@ -7,6 +7,7 @@ import {
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Item, AIMatchCandidate } from '../types';
+import { formatImageUrl } from '../utils/image';
 
 export const ItemDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -152,7 +153,7 @@ export const ItemDetailPage: React.FC = () => {
         <div className="lg:col-span-5 rounded-2xl bg-[#0B1426] border border-blue-900/35 overflow-hidden p-6 flex flex-col items-center justify-center min-h-[380px]">
           {item.image_url ? (
             <img
-              src={item.image_url}
+              src={formatImageUrl(item.image_url)}
               alt={item.title}
               className="max-h-80 w-auto object-contain filter drop-shadow-xl"
             />

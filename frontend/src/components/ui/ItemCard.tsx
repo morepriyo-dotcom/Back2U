@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { MapPin, Clock, Tag } from 'lucide-react';
 import { Item } from '../../types';
+import { formatImageUrl } from '../../utils/image';
 
 interface ItemCardProps {
   item: Item;
@@ -32,7 +33,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, showStatusBadge = true
       <div className="relative aspect-square w-full bg-[#070D1B] flex items-center justify-center overflow-hidden p-4">
         {item.image_url ? (
           <img
-            src={item.image_url}
+            src={formatImageUrl(item.image_url)}
             alt={item.title}
             className="w-full h-full object-contain filter drop-shadow-md group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
