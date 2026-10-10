@@ -97,7 +97,9 @@ export const RecoveryPage: React.FC = () => {
           <Sparkles className="w-10 h-10 text-yellow-400 mx-auto animate-bounce" />
           <h2 className="text-2xl font-black text-white">Item Successfully Reunited!</h2>
           <p className="text-xs text-emerald-300">
-            Both parties verified the handover. +150 Back2U Points and reputation have been credited!
+            {claim.points_awarded
+              ? 'Both parties verified the handover with documented ownership proof. +150 Back2U Recovery Points have been awarded to the finder!'
+              : 'Both parties verified in-person handover. In accordance with community rules, unverified handovers without submitted proof complete the return with 0 points awarded.'}
           </p>
         </div>
       )}
