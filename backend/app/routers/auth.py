@@ -10,6 +10,7 @@ from app.schemas.user import (
 from app.services.auth_service import get_password_hash, verify_password, create_access_token, get_current_user
 from app.services.otp_service import otp_service
 from app.services.audit_service import audit_service
+from app.config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -49,9 +50,23 @@ def verify_phone_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
         )
 
     norm_phone = otp_service.normalize_phone(req.phone_number)
-    is_valid, err_msg = otp_service.verify_otp(db, norm_phone, req.otp_code)
-    if not is_valid:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_msg)
+
+    # Verify either via Firebase ID token (from real SMS) or local DB OTP
+    verified_via_firebase = False
+    if req.firebase_id_token:
+        try:
+            from firebase_admin import auth as fb_auth
+            decoded = fb_auth.verify_id_token(req.firebase_id_token)
+            if decoded.get("phone_number"):
+                verified_via_firebase = True
+        except Exception:
+            # Fall back to code check if admin token check fails
+            pass
+
+    if not verified_via_firebase:
+        is_valid, err_msg = otp_service.verify_otp(db, norm_phone, req.otp_code)
+        if not is_valid:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err_msg)
 
     # Check if user with this phone number already exists
     user = db.query(User).filter(User.phone_number == norm_phone).first()
@@ -98,6 +113,20 @@ def verify_phone_otp(req: VerifyOTPRequest, db: Session = Depends(get_db)):
             resource_id=user.id,
             details=f"User logged in with verified phone {norm_phone}"
         )
+
+        try:
+            from app.services.firebase_db import sync_user_to_firestore
+            sync_user_to_firestore({
+                "id": user.id,
+                "phone_number": user.phone_number,
+                "full_name": user.full_name,
+                "role": user.role,
+                "trust_score": user.trust_score,
+                "points_balance": user.points_balance,
+                "is_phone_verified": True
+            })
+        except Exception:
+            pass
 
     token = create_access_token({"sub": str(user.id), "phone": user.phone_number, "role": user.role})
     return {"access_token": token, "token_type": "bearer", "user": user}
@@ -148,6 +177,21 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         details=f"User registered with email {user.email}"
     )
 
+    try:
+        from app.services.firebase_db import sync_user_to_firestore
+        sync_user_to_firestore({
+            "id": user.id,
+            "email": user.email,
+            "phone_number": user.phone_number,
+            "full_name": user.full_name,
+            "role": user.role,
+            "trust_score": user.trust_score,
+            "points_balance": user.points_balance,
+            "created_at": user.created_at
+        })
+    except Exception:
+        pass
+
     token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
     return {"access_token": token, "token_type": "bearer", "user": user}
 
@@ -169,7 +213,13 @@ def login(creds: UserLogin, db: Session = Depends(get_db)):
 def demo_login(req: DemoLoginRequest, db: Session = Depends(get_db)):
     """
     Convenient one-click development demo login for testing predefined personas.
+    Explicitly disabled in production environments.
     """
+    if not settings.ENABLE_DEMO_LOGIN or settings.APP_ENV.lower() == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo login is disabled in production environments."
+        )
     role_map = {
         "admin": "admin@back2u.org",
         "finder": "rohan@back2u.org",

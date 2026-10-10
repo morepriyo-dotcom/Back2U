@@ -25,6 +25,7 @@ class VerifyOTPRequest(BaseModel):
     phone_number: str
     otp_code: str # 6-digit code
     full_name: Optional[str] = None
+    firebase_id_token: Optional[str] = None
 
 class OTPResponse(BaseModel):
     message: str

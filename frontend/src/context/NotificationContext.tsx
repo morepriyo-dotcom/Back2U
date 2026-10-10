@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
 import { NotificationItem } from '../types';
+import { firebaseDbService } from '../services/firebase';
 
 interface NotificationContextType {
   notifications: NotificationItem[];
@@ -14,7 +15,7 @@ interface NotificationContextType {
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
 
@@ -35,9 +36,28 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     fetchNotifications();
+
+    // Attach real-time Firebase Firestore listener if configured
+    let unsubscribeFirestore: (() => void) | undefined;
+    if (firebaseDbService.isConfigured && user?.id) {
+      try {
+        unsubscribeFirestore = firebaseDbService.subscribeUserNotifications(user.id, (liveNotifs) => {
+          if (liveNotifs && liveNotifs.length > 0) {
+            // Live Firestore update received -> refresh list
+            fetchNotifications();
+          }
+        });
+      } catch (err) {
+        console.warn('[Firebase] Notification subscription deferred:', err);
+      }
+    }
+
     const interval = setInterval(fetchNotifications, 15000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated]);
+    return () => {
+      clearInterval(interval);
+      if (unsubscribeFirestore) unsubscribeFirestore();
+    };
+  }, [isAuthenticated, user?.id]);
 
   const markAsRead = async (id: number) => {
     try {

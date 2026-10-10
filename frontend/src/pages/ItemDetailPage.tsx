@@ -254,8 +254,8 @@ export const ItemDetailPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Reporter private clues view (ONLY visible to reporter or admin) */}
-          {item.private_clues && (
+          {/* Reporter private clues view (strictly restricted to reporter or admin) */}
+          {(isReporter || user?.role === 'admin') && item.private_clues && (
             <div className="p-4 rounded-xl bg-[#0e1832] border border-blue-500/40 space-y-1 text-xs">
               <span className="font-bold text-amber-300 flex items-center gap-1.5">
                 <Eye className="w-3.5 h-3.5" />
@@ -421,18 +421,22 @@ export const ItemDetailPage: React.FC = () => {
             ) : (
               <form onSubmit={handleClaimSubmit} className="space-y-4 text-xs">
                 <div>
+                  <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 text-[11px] text-blue-200 space-y-1 mb-3">
+                    <span className="font-bold block text-blue-300">Ownership Verification Guidelines:</span>
+                    <span>Provide <strong>at least one strong proof of ownership</strong> (e.g. Serial Number/IMEI, purchase receipt/invoice, or unique secret identifying marks). In-person inspection and return is permitted.</span>
+                  </div>
+
                   <label className="block text-slate-300 font-semibold mb-1">
-                    Identifying Distinguishing Details *
+                    Identifying Distinguishing Details / Clues
                   </label>
                   <p className="text-[11px] text-slate-400 mb-1.5">
-                    Describe unique marks, engravings, contents, stickers, or hidden features that prove this item is yours.
+                    Describe unique marks, engravings, contents, wallpaper, stickers, or hidden features known only to the rightful owner.
                   </p>
                   <textarea
-                    required
                     rows={3}
                     value={challengeAnswer}
                     onChange={(e) => setChallengeAnswer(e.target.value)}
-                    placeholder="e.g. There is a sticker of a red rocket on the rear lid, and serial number ending in W79..."
+                    placeholder="e.g. There is a sticker of a red rocket on the rear lid, or secret phone lock-screen photo..."
                     className="w-full p-2.5 rounded-xl bg-[#070D1A] border border-blue-900/50 text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
                   />
                 </div>
@@ -440,20 +444,20 @@ export const ItemDetailPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-slate-300 font-semibold mb-1">
-                      Serial Number (Optional)
+                      IMEI / Serial Number (Strong Proof)
                     </label>
                     <input
                       type="text"
                       value={serialNumber}
                       onChange={(e) => setSerialNumber(e.target.value)}
-                      placeholder="e.g. AP-9482-X"
+                      placeholder="e.g. IMEI 3582... or SN: AP-9482-X"
                       className="w-full p-2.5 rounded-xl bg-[#070D1A] border border-blue-900/50 text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
                     />
                   </div>
 
                   <div>
                     <label className="block text-slate-300 font-semibold mb-1">
-                      Purchase Receipt / Proof URL (Optional)
+                      Purchase Receipt / Invoice URL (Strong Proof)
                     </label>
                     <input
                       type="text"

@@ -4,46 +4,68 @@ services:
   db:
     image: pgvector/pgvector:pg16
     container_name: back2u-postgres
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: back2u
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: ${POSTGRES_DB:-back2u}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-back2u}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: back2u-backend
-    restart: always
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://postgres:postgrespassword@db:5432/back2u
-      SECRET_KEY: back2u_production_jwt_secret_key_2026
-      WEIGHT_IMAGE: 0.40
-      WEIGHT_TEXT: 0.35
-      WEIGHT_LOCATION: 0.15
-      WEIGHT_DATE: 0.10
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@db:5432/${POSTGRES_DB:-back2u}}
+      SECRET_KEY: ${SECRET_KEY:-back2u_secure_production_secret_key_at_least_32_chars_2026}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:5173,http://127.0.0.1:5173}
+      ENABLE_DEMO_LOGIN: ${ENABLE_DEMO_LOGIN:-false}
+      ENABLE_AUTO_SEED: ${ENABLE_AUTO_SEED:-false}
+      WEIGHT_IMAGE: ${WEIGHT_IMAGE:-0.40}
+      WEIGHT_TEXT: ${WEIGHT_TEXT:-0.35}
+      WEIGHT_LOCATION: ${WEIGHT_LOCATION:-0.15}
+      WEIGHT_DATE: ${WEIGHT_DATE:-0.10}
+      UPLOAD_DIR: /app/uploads
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
-      - ./backend/uploads:/app/uploads
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
     container_name: back2u-frontend
-    restart: always
+    restart: unless-stopped
     ports:
-      - "5173:80"
+      - "${FRONTEND_PORT:-5173}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  uploads_data:

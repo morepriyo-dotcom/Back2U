@@ -58,6 +58,16 @@ def create_request_to_buy(
     if item.reporter_id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot request to buy your own reported item")
 
+    # Statutory compliance: Disable independent sales/purchases for valuable personal belongings
+    restricted_categories = ["electronic", "phone", "bag", "wallet", "key", "vehicle", "document", "id"]
+    item_cat = (item.category or "").lower()
+    item_title = (item.title or "").lower()
+    if item.is_govt_id or any(rc in item_cat for rc in restricted_categories) or any(rc in item_title for rc in ["phone", "iphone", "laptop", "bag", "wallet", "key", "passport", "aadhaar"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Independent citizen sale/purchase of valuable personal belongings (phones, bags, car keys, wallets, IDs) is prohibited. Unclaimed items must undergo statutory review and authority disposition."
+        )
+
     new_req = RequestToBuy(
         item_id=item.id,
         requester_id=current_user.id,
@@ -69,6 +79,21 @@ def create_request_to_buy(
     db.add(new_req)
     db.commit()
     db.refresh(new_req)
+
+    try:
+        from app.services.firebase_db import sync_marketplace_request_to_firestore
+        sync_marketplace_request_to_firestore({
+            "id": new_req.id,
+            "item_id": new_req.item_id,
+            "requester_id": new_req.requester_id,
+            "offer_amount": new_req.offer_amount,
+            "currency_type": new_req.currency_type,
+            "message": new_req.message,
+            "status": new_req.status,
+            "created_at": new_req.created_at
+        })
+    except Exception:
+        pass
 
     return RequestToBuyResponse(
         id=new_req.id,
@@ -132,6 +157,19 @@ def place_bid(
     auction.current_bid_points = bid_in.bid_points
     auction.current_highest_bidder_id = current_user.id
     db.commit()
+
+    try:
+        from app.services.firebase_db import sync_marketplace_request_to_firestore
+        sync_marketplace_request_to_firestore({
+            "id": f"bid_{auction_id}_{int(datetime.datetime.utcnow().timestamp())}",
+            "type": "AUCTION_BID",
+            "auction_id": auction_id,
+            "bidder_id": current_user.id,
+            "bid_points": bid_in.bid_points,
+            "placed_at": datetime.datetime.utcnow().isoformat()
+        })
+    except Exception:
+        pass
 
     return {
         "message": "Bid successfully placed!",

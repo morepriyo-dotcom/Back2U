@@ -200,9 +200,23 @@ export const RegisterPage: React.FC = () => {
           ) : (
             <form onSubmit={handleVerifyAndRegister} className="space-y-4">
               {devOtpSim && (
-                <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 text-[11px] text-blue-200">
-                  <span className="font-bold block text-blue-300 mb-0.5">Simulated SMS Dispatch (Development Mode)</span>
-                  {devOtpSim}
+                <div className="p-3 rounded-xl bg-blue-950/60 border border-blue-500/50 text-[11px] text-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="font-bold block text-blue-300 mb-0.5">Development / Fallback OTP Code:</span>
+                    <span>{devOtpSim}</span>
+                  </div>
+                  {devOtpSim.match(/\d{6}/) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code = devOtpSim.match(/\d{6}/)?.[0] || '';
+                        setOtpCode(code);
+                      }}
+                      className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] shrink-0 self-start sm:self-auto"
+                    >
+                      Auto-fill OTP
+                    </button>
+                  )}
                 </div>
               )}
 

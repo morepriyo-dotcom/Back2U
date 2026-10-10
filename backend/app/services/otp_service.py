@@ -1,3 +1,4 @@
+import os
 import hashlib
 import secrets
 import datetime
@@ -74,12 +75,60 @@ class OTPService:
         db.add(record)
         db.commit()
 
-        # 3. SMS Delivery simulation or provider hook
-        # Print clearly to backend console for developer observation
-        print(f"\n[BACK2U SMS GATEWAY] Dispatching to {phone} -> Verification Code: {code} (Valid for 5 mins)\n")
+        # 3. SMS Delivery: check for real SMS provider credentials
+        sent_real_sms = False
 
-        # In development, provide the preview so user/evaluator can test without external SMS bill
-        return True, "OTP sent successfully via SMS", code, 300
+        # Provider A: Fast2SMS (India)
+        fast2sms_key = os.getenv("FAST2SMS_API_KEY")
+        if fast2sms_key:
+            try:
+                import httpx
+                clean_num = phone.replace("+91", "").replace("+", "")
+                resp = httpx.post(
+                    "https://www.fast2sms.com/dev/bulkV2",
+                    headers={"authorization": fast2sms_key},
+                    data={
+                        "variables_values": code,
+                        "route": "otp",
+                        "numbers": clean_num
+                    },
+                    timeout=5.0
+                )
+                if resp.status_code == 200:
+                    sent_real_sms = True
+                    print(f"[FAST2SMS] Successfully dispatched real SMS to {phone}")
+            except Exception as e:
+                print(f"[FAST2SMS] Dispatch error: {e}")
+
+        # Provider B: Twilio (International)
+        twilio_sid = os.getenv("TWILIO_ACCOUNT_SID")
+        twilio_token = os.getenv("TWILIO_AUTH_TOKEN")
+        twilio_from = os.getenv("TWILIO_PHONE_NUMBER")
+        if not sent_real_sms and twilio_sid and twilio_token and twilio_from:
+            try:
+                import httpx
+                resp = httpx.post(
+                    f"https://api.twilio.com/2010-04-01/Accounts/{twilio_sid}/Messages.json",
+                    auth=(twilio_sid, twilio_token),
+                    data={
+                        "From": twilio_from,
+                        "To": phone,
+                        "Body": f"Your Back2U verification code is: {code}. Valid for 5 minutes."
+                    },
+                    timeout=5.0
+                )
+                if resp.status_code in (200, 201):
+                    sent_real_sms = True
+                    print(f"[TWILIO] Successfully dispatched real SMS to {phone}")
+            except Exception as e:
+                print(f"[TWILIO] Dispatch error: {e}")
+
+        print(f"\n[BACK2U SMS GATEWAY] Dispatching to {phone} -> Verification Code: {code} (Real SMS Sent: {sent_real_sms})\n")
+
+        if sent_real_sms:
+            return True, "Verification code sent to your phone via SMS.", None, 300
+        else:
+            return True, "OTP dispatched. (Note: External SMS gateway is in Dev Preview mode).", code, 300
 
     def verify_otp(self, db: Session, phone_raw: str, code: str) -> Tuple[bool, str]:
         """

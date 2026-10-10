@@ -260,8 +260,18 @@ def create_item(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    # Derive title if missing or empty
+    resolved_title = (item_in.title or "").strip()
+    if not resolved_title:
+        # Generate clean summary title from description
+        desc_snippet = item_in.description.strip().split("\n")[0][:50]
+        resolved_title = desc_snippet if desc_snippet else f"{item_in.report_type.capitalize()} Item"
+
+    resolved_category = (item_in.category or "Other").strip()
+    resolved_location = (item_in.location_name or "Location Not Specified").strip()
+
     # 1. Generate text embedding
-    text_content = f"{item_in.title} {item_in.category} {item_in.description} {item_in.brand or ''} {item_in.model or ''} {item_in.location_name}"
+    text_content = f"{resolved_title} {resolved_category} {item_in.description} {item_in.brand or ''} {item_in.model or ''} {resolved_location}"
     text_emb = generate_text_embedding(text_content)
 
     # 2. Generate image embedding if local path exists
@@ -287,10 +297,10 @@ def create_item(
 
     new_item = Item(
         report_type=item_in.report_type.upper(),
-        title=item_in.title,
-        category=item_in.category,
+        title=resolved_title,
+        category=resolved_category,
         description=item_in.description,
-        location_name=item_in.location_name,
+        location_name=resolved_location,
         latitude=item_in.latitude,
         longitude=item_in.longitude,
         incident_date=item_in.incident_date or datetime.datetime.utcnow(),
@@ -313,16 +323,78 @@ def create_item(
     db.commit()
     db.refresh(new_item)
 
-    # If user reported a FOUND item, reward them with +50 Back2U points
-    if new_item.report_type == "FOUND":
-        trust_service.award_points(
-            db=db,
-            user=current_user,
-            amount=settings.POINTS_FOUND_REPORT,
-            transaction_type="FOUND_REPORT_REWARD",
-            description=f"Reward for reporting found item '{new_item.title}'",
-            related_item_id=new_item.id
-        )
+    # Note: Points are awarded strictly for verified, documented recovery and return (NOT for simply reporting)
+
+    # Automatic background AI matching on report creation
+    try:
+        from app.ai.matching_engine import AIMatchingEngine
+        from app.models.notification import Notification
+
+        engine = AIMatchingEngine()
+        opposite_type = "FOUND" if new_item.report_type == "LOST" else "LOST"
+        candidates = db.query(Item).filter(
+            Item.report_type == opposite_type,
+            Item.status.notin_(["CLOSED", "RETURNED"]),
+            Item.id != new_item.id
+        ).all()
+
+        if candidates:
+            ranked = engine.rank_candidates(new_item, candidates, min_score=0.50)
+            for top_match in ranked[:3]: # top high-confidence matches
+                matched_item_id = top_match["candidate_item_id"]
+                score_pct = int(top_match["match_score"] * 100)
+                matched_item = db.query(Item).filter(Item.id == matched_item_id).first()
+                if matched_item and matched_item.reporter_id != current_user.id:
+                    # Notify reporter of new item
+                    notif1 = Notification(
+                        user_id=current_user.id,
+                        title=f"Potential AI Match Detected ({score_pct}%)",
+                        message=f"We found a potential match for your report '{new_item.title}': '{matched_item.title}' in {matched_item.location_name}.",
+                        notification_type="AI_MATCH",
+                        link_url=f"/items/{matched_item.id}"
+                    )
+                    db.add(notif1)
+
+                    # Notify reporter of opposite item
+                    notif2 = Notification(
+                        user_id=matched_item.reporter_id,
+                        title=f"Potential AI Match Detected ({score_pct}%)",
+                        message=f"A new report '{new_item.title}' strongly matches your item '{matched_item.title}'.",
+                        notification_type="AI_MATCH",
+                        link_url=f"/items/{new_item.id}"
+                    )
+                    db.add(notif2)
+            db.commit()
+    except Exception as match_err:
+        print(f"[AI Matching Error] Background matching skipped: {match_err}")
+
+    # Seamlessly sync to Cloud Firestore if connected
+    try:
+        from app.services.firebase_db import sync_item_to_firestore
+        sync_item_to_firestore({
+            "id": new_item.id,
+            "report_type": new_item.report_type,
+            "title": new_item.title,
+            "category": new_item.category,
+            "description": new_item.description,
+            "location_name": new_item.location_name,
+            "latitude": new_item.latitude,
+            "longitude": new_item.longitude,
+            "incident_date": new_item.incident_date,
+            "image_url": new_item.image_url,
+            "brand": new_item.brand,
+            "model": new_item.model,
+            "custody_status": new_item.custody_status,
+            "status": new_item.status,
+            "lr_number": new_item.lr_number,
+            "is_govt_id": new_item.is_govt_id,
+            "govt_id_type": new_item.govt_id_type,
+            "masked_identifier": new_item.masked_identifier,
+            "created_at": new_item.created_at,
+            "reporter_id": new_item.reporter_id,
+        })
+    except Exception:
+        pass
 
     return new_item
 
@@ -360,6 +432,35 @@ def update_item(
 
     db.commit()
     db.refresh(item)
+
+    # Sync update to Firestore
+    try:
+        from app.services.firebase_db import sync_item_to_firestore
+        sync_item_to_firestore({
+            "id": item.id,
+            "report_type": item.report_type,
+            "title": item.title,
+            "category": item.category,
+            "description": item.description,
+            "location_name": item.location_name,
+            "latitude": item.latitude,
+            "longitude": item.longitude,
+            "incident_date": item.incident_date,
+            "image_url": item.image_url,
+            "brand": item.brand,
+            "model": item.model,
+            "custody_status": item.custody_status,
+            "status": item.status,
+            "lr_number": item.lr_number,
+            "is_govt_id": item.is_govt_id,
+            "govt_id_type": item.govt_id_type,
+            "masked_identifier": item.masked_identifier,
+            "created_at": item.created_at,
+            "reporter_id": item.reporter_id,
+        })
+    except Exception:
+        pass
+
     return item
 
 @router.delete("/{item_id}")
@@ -377,4 +478,15 @@ def delete_or_close_item(
 
     item.status = "CLOSED"
     db.commit()
+
+    # Sync closure to Firestore
+    try:
+        from app.services.firebase_db import sync_item_to_firestore
+        sync_item_to_firestore({
+            "id": item.id,
+            "status": "CLOSED"
+        })
+    except Exception:
+        pass
+
     return {"message": "Report successfully closed", "item_id": item_id}

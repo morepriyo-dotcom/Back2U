@@ -5,6 +5,8 @@ import {
   Phone, Mail, ArrowRight, CheckCircle2, Lock, KeyRound 
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { firebaseAuthService } from '../services/firebase';
+import type { ConfirmationResult } from 'firebase/auth';
 
 export const LoginPage: React.FC = () => {
   const { login, demoLogin, sendPhoneOTP, verifyPhoneOTP, isLoading } = useAuth();
@@ -18,6 +20,9 @@ export const LoginPage: React.FC = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [devOtpSim, setDevOtpSim] = useState<string | null>(null);
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [smsDeliveryMode, setSmsDeliveryMode] = useState<'firebase' | 'backend'>('firebase');
+  const [smsInfoMsg, setSmsInfoMsg] = useState<string | null>(null);
 
   // Email auth state
   const [email, setEmail] = useState('');
@@ -38,13 +43,42 @@ export const LoginPage: React.FC = () => {
   const handleSendOTP = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError('');
+    setSmsInfoMsg(null);
     if (!phone || phone.length < 8) {
-      setError('Please enter a valid mobile number');
+      setError('Please enter a valid mobile number with country code (e.g. +919876543210)');
       return;
     }
     setSubmitting(true);
+
+    // 1. Attempt REAL SMS dispatch via Google Firebase Phone Auth
+    if (firebaseAuthService.isConfigured) {
+      try {
+        console.log('[Phone Auth] Dispatching real SMS via Firebase Phone Auth...');
+        const confResult = await firebaseAuthService.sendPhoneOTP(phone, 'recaptcha-container');
+        setConfirmationResult(confResult);
+        setSmsDeliveryMode('firebase');
+        setOtpSent(true);
+        setCountdown(60);
+        setDevOtpSim(null);
+        setSmsInfoMsg('Real SMS verification code dispatched to your phone! Please enter the 6-digit code received via SMS.');
+        setSubmitting(false);
+        return;
+      } catch (fbErr: any) {
+        console.warn('[Phone Auth] Firebase real SMS attempt failed:', fbErr);
+        if (fbErr.code === 'auth/operation-not-allowed') {
+          setSmsInfoMsg(
+            "Notice: Real SMS requires 'Phone' provider enabled in Firebase Console (Authentication > Sign-in method > Phone). Using simulated code below for now."
+          );
+        } else {
+          setSmsInfoMsg(`Notice: ${fbErr.message || 'SMS service notification'}. Using simulated code below.`);
+        }
+      }
+    }
+
+    // 2. Fallback to Backend OTP dispatch
     try {
       const res = await sendPhoneOTP(phone);
+      setSmsDeliveryMode('backend');
       setOtpSent(true);
       setCountdown(45);
       if (res.dev_sms_simulation) {
@@ -66,7 +100,11 @@ export const LoginPage: React.FC = () => {
     }
     setSubmitting(true);
     try {
-      await verifyPhoneOTP(phone, otpCode);
+      let firebaseToken: string | undefined;
+      if (confirmationResult && smsDeliveryMode === 'firebase') {
+        firebaseToken = await firebaseAuthService.confirmPhoneOTP(confirmationResult, otpCode);
+      }
+      await verifyPhoneOTP(phone, otpCode, undefined, firebaseToken);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Invalid verification code');
@@ -169,6 +207,16 @@ export const LoginPage: React.FC = () => {
       {/* TAB 1: PHONE SMS OTP */}
       {authMethod === 'phone' && (
         <div className="p-6 rounded-2xl bg-[#091224]/90 border border-blue-900/35 space-y-5">
+          {/* Invisible reCAPTCHA container for Firebase Phone Auth */}
+          <div id="recaptcha-container"></div>
+
+          {smsInfoMsg && (
+            <div className="p-3 rounded-xl bg-blue-950/50 border border-blue-500/40 text-[11px] text-blue-200 flex items-start gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <span>{smsInfoMsg}</span>
+            </div>
+          )}
+
           {!otpSent ? (
             <form onSubmit={handleSendOTP} className="space-y-4">
               <div className="space-y-1.5">
@@ -187,7 +235,7 @@ export const LoginPage: React.FC = () => {
                   />
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Enter your 10-digit number. An SMS containing a secure 6-digit code will be dispatched.
+                  Enter your mobile number with country code (e.g. +91). A real 6-digit SMS code will be sent to your phone.
                 </p>
               </div>
 
@@ -203,9 +251,23 @@ export const LoginPage: React.FC = () => {
           ) : (
             <form onSubmit={handleVerifyOTP} className="space-y-4">
               {devOtpSim && (
-                <div className="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 text-[11px] text-blue-200">
-                  <span className="font-bold block text-blue-300 mb-0.5">Simulated SMS Dispatch (Development Mode)</span>
-                  {devOtpSim}
+                <div className="p-3 rounded-xl bg-blue-950/60 border border-blue-500/50 text-[11px] text-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="font-bold block text-blue-300 mb-0.5">Development / Fallback OTP Code:</span>
+                    <span>{devOtpSim}</span>
+                  </div>
+                  {devOtpSim.match(/\d{6}/) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const code = devOtpSim.match(/\d{6}/)?.[0] || '';
+                        setOtpCode(code);
+                      }}
+                      className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] shrink-0 self-start sm:self-auto"
+                    >
+                      Auto-fill OTP
+                    </button>
+                  )}
                 </div>
               )}
 

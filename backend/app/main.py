@@ -22,20 +22,23 @@ from app.routers import (
     marketplace,
     notifications,
     admin,
-    upload
+    upload,
+    firebase_sync
 )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize DB schema
-    Base.metadata.create_all(bind=engine)
-    
-    # Run seed data
-    db = SessionLocal()
-    try:
-        seed_database(db)
-    finally:
-        db.close()
+    # In production, migrations manage schema; create_all is used only in development/testing
+    if settings.APP_ENV != "production":
+        Base.metadata.create_all(bind=engine)
+        
+        # Run seed data if enabled
+        if settings.ENABLE_AUTO_SEED:
+            db = SessionLocal()
+            try:
+                seed_database(db)
+            finally:
+                db.close()
         
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     yield
@@ -47,23 +50,33 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 1. Rate Limiting Middleware (Security hardening against brute-force & denial of service)
+# 1. Rate Limiting Middleware (Security hardening against brute-force, claims spam, and upload flood)
 request_history = defaultdict(list)
 
 @app.middleware("http")
 async def rate_limiting_middleware(request: Request, call_next):
-    if request.url.path.startswith("/api/auth/"):
-        client_ip = request.client.host if request.client else "unknown"
-        now = time.time()
-        # Sliding window 60s
-        request_history[client_ip] = [t for t in request_history[client_ip] if now - t < 60]
-        # Max 60 requests per minute on auth endpoints
-        if len(request_history[client_ip]) >= 60:
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "Security rate limit exceeded. Please wait a minute before retrying."}
-            )
-        request_history[client_ip].append(now)
+    path = request.url.path
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    
+    # Configure per-route thresholds: (prefix, max_requests_per_minute)
+    throttled_paths = [
+        ("/api/auth/", 60),
+        ("/api/claims", 15),
+        ("/api/upload", 15)
+    ]
+    
+    for prefix, max_req in throttled_paths:
+        if path.startswith(prefix):
+            key = f"{client_ip}:{prefix}"
+            request_history[key] = [t for t in request_history[key] if now - t < 60]
+            if len(request_history[key]) >= max_req:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": f"Rate limit exceeded for {prefix}. Maximum {max_req} requests per minute. Please try again shortly."}
+                )
+            request_history[key].append(now)
+            break
 
     return await call_next(request)
 
@@ -79,16 +92,29 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
-# 3. CORS Configuration
+# 3. Global Exception Handler (Suppress stack traces in production)
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    if settings.DEBUG:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": str(exc)}
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred. Please contact the administrator."}
+    )
+
+# 4. Strict CORS Configuration (Restricted to configured origins, credentials allowed)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 
-# Static file serving for uploads
+# Static file serving for public uploads
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
@@ -103,9 +129,12 @@ app.include_router(marketplace.router)
 app.include_router(notifications.router)
 app.include_router(admin.router)
 app.include_router(upload.router)
+app.include_router(firebase_sync.router)
 
 @app.get("/api/health")
 def health_check():
+    from app.ai.embeddings import get_ai_engine_info
+    ai_info = get_ai_engine_info()
     return {
         "status": "healthy",
         "service": "Back2U Backend API",
@@ -113,11 +142,14 @@ def health_check():
         "security": {
             "rate_limiting": "active",
             "security_headers": "enforced",
+            "cors_origins": settings.cors_origins_list,
             "statutory_compliance": "Police Act Sec 66 & Contract Act Sec 168/169"
         },
         "ai_engine": {
             "status": "online",
-            "model": "Multi-Modal Weighted Ranking (OpenCLIP + Sentence Transformer)",
+            "text_model": ai_info.get("text_model"),
+            "image_model": ai_info.get("image_model"),
+            "engine_mode": ai_info.get("mode"),
             "weights": {
                 "image_similarity": settings.WEIGHT_IMAGE,
                 "text_similarity": settings.WEIGHT_TEXT,
@@ -130,3 +162,4 @@ def health_check():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
+

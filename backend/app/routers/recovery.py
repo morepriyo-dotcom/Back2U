@@ -81,34 +81,64 @@ def confirm_recovery_handover(
     if not (is_claimant or is_finder or is_admin):
         raise HTTPException(status_code=403, detail="Not authorized to confirm handover for this case")
 
-    if is_finder or is_admin:
+    if claim.status not in ["APPROVED", "HANDOVER_PENDING", "RETURN_CONFIRMED"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot confirm handover for claim in '{claim.status}' state. Evidence must be approved and handover pending."
+        )
+
+    # Idempotent response if already confirmed
+    if claim.status == "RETURN_CONFIRMED" and claim.finder_confirmed and claim.owner_confirmed:
+        return {
+            "message": "Handover was already completed and confirmed",
+            "finder_confirmed": True,
+            "owner_confirmed": True,
+            "case_status": "RETURN_CONFIRMED"
+        }
+
+    if is_finder:
         claim.finder_confirmed = True
-    if is_claimant or is_admin:
+    if is_claimant:
+        claim.owner_confirmed = True
+    if is_admin:
+        claim.finder_confirmed = True
         claim.owner_confirmed = True
 
     if confirm_in.handover_notes:
         claim.handover_meeting_notes = confirm_in.handover_notes
     claim.handover_date = datetime.datetime.utcnow()
 
-    # If both sides confirmed (or admin confirms on behalf of participants)
-    if (claim.finder_confirmed and claim.owner_confirmed) or is_admin:
+    # Handover is complete only when both parties have confirmed (or admin override)
+    both_confirmed = claim.finder_confirmed and claim.owner_confirmed
+    if both_confirmed:
         claim.status = "RETURN_CONFIRMED"
         claim.item.status = "RETURNED"
         claim.closed_at = datetime.datetime.utcnow()
 
-        # Award +150 Points to the Finder!
-        if not claim.points_awarded and claim.item.reporter:
+        # Check if verified ownership proof was submitted
+        has_verified_proof = bool(
+            (claim.serial_number_provided and len(claim.serial_number_provided.strip()) >= 4)
+            or claim.purchase_receipt_url
+            or (claim.challenge_answers and len(claim.challenge_answers.strip()) >= 15)
+        )
+
+        # Award points to Finder strictly once if verified ownership proof was provided
+        # In-person return without submitted proof is allowed, but awards 0 Back2U Points
+        if not claim.points_awarded and claim.item.reporter and has_verified_proof:
+            claim.points_awarded = True
             finder_user = claim.item.reporter
             trust_service.award_points(
                 db=db,
                 user=finder_user,
                 amount=settings.POINTS_RECOVERY_CONFIRMED,
                 transaction_type="RETURN_COMPLETED_REWARD",
-                description=f"Reward for successfully returning item '{claim.item.title}' to verified owner",
+                description=f"Reward for verified documented recovery of item '{claim.item.title}'",
                 related_item_id=claim.item.id,
                 related_claim_id=claim.id
             )
-            claim.points_awarded = True
+        else:
+            # Documented return without proof: 0 points awarded
+            claim.points_awarded = False
 
         audit_service.log_action(
             db=db,
@@ -116,14 +146,28 @@ def confirm_recovery_handover(
             action="RECOVERY_COMPLETED",
             resource_type="claim",
             resource_id=claim.id,
-            details=f"Item #{claim.item_id} successfully reunited and returned"
+            details=f"Item #{claim.item_id} successfully reunited and returned via dual-confirmation"
         )
 
     db.commit()
     db.refresh(claim)
 
+    try:
+        from app.services.firebase_db import sync_recovery_to_firestore
+        sync_recovery_to_firestore({
+            "claim_id": claim.id,
+            "item_id": claim.item_id,
+            "status": claim.status,
+            "finder_confirmed": claim.finder_confirmed,
+            "owner_confirmed": claim.owner_confirmed,
+            "handover_notes": claim.handover_meeting_notes,
+            "handover_date": claim.handover_date
+        })
+    except Exception:
+        pass
+
     return {
-        "message": "Handover confirmation recorded successfully",
+        "message": "Handover confirmation recorded successfully" if both_confirmed else "Confirmation recorded. Awaiting confirmation from other party.",
         "finder_confirmed": claim.finder_confirmed,
         "owner_confirmed": claim.owner_confirmed,
         "case_status": claim.status

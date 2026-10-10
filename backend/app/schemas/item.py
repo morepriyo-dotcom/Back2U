@@ -3,14 +3,14 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 class ItemBase(BaseModel):
-    report_type: str # 'LOST' or 'FOUND'
-    title: str
-    category: str
-    description: str
-    location_name: str
+    report_type: str # 'LOST' or 'FOUND' (Mandatory)
+    description: str # (Mandatory)
+    incident_date: Optional[datetime.datetime] = None # (Mandatory in business logic, defaults to now if omitted)
+    title: Optional[str] = None # Optional: auto-derived from description if not provided
+    category: Optional[str] = "Other" # Optional: defaults to Other if not provided
+    location_name: Optional[str] = "Not Specified" # Optional
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    incident_date: Optional[datetime.datetime] = None
     image_url: Optional[str] = None
     brand: Optional[str] = None
     model: Optional[str] = None

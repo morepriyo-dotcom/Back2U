@@ -157,11 +157,28 @@ def take_admin_item_action(
         item.is_flagged = False
         item.flag_reason = None
     elif act == "UNCLAIMED_AUCTION":
+        # Check unclaimed waiting period: item must be at least 90 days old (3-6 months review)
+        days_active = (datetime.datetime.utcnow() - item.created_at).days
+        if days_active < 90 and not item.is_demo_seed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Item has only been reported for {days_active} days. Statutory unclaimed item review begins only after 90–180 days (3–6 months) without a successful claim."
+            )
+
+        # Valuable or sensitive items must NOT automatically enter auctions
+        valuable_keywords = ["phone", "laptop", "bag", "wallet", "key", "vehicle", "document", "id", "electronic"]
+        cat_lower = (item.category or "").lower()
+        title_lower = (item.title or "").lower()
+        if item.is_govt_id or any(k in cat_lower for k in valuable_keywords) or any(k in title_lower for k in ["iphone", "macbook", "passport", "aadhaar", "pan", "car key"]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Valuable personal belongings (phones, bags, car keys, wallets, IDs) cannot be auctioned. They must be surrendered to the appropriate police/statutory authority under applicable legal requirements."
+            )
+
         item.status = "UNCLAIMED_AUCTION"
         # Create auction listing if not exists
         existing_auction = db.query(AuctionListing).filter(AuctionListing.item_id == item.id).first()
         if not existing_auction:
-            import datetime
             new_auction = AuctionListing(
                 item_id=item.id,
                 starting_points=50,

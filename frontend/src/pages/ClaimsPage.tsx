@@ -215,6 +215,14 @@ export const ClaimsPage: React.FC = () => {
               />
             </div>
 
+            {/* Disputed warning */}
+            {reviewClaim.is_disputed && user?.role !== 'admin' && (
+              <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>This item has conflicting claimants (Disputed). Administrator review is required before approval.</span>
+              </div>
+            )}
+
             {/* Approval / Rejection buttons */}
             <div className="flex items-center justify-between pt-2">
               <button
@@ -238,9 +246,9 @@ export const ClaimsPage: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  disabled={updating}
+                  disabled={updating || (reviewClaim.is_disputed && user?.role !== 'admin')}
                   onClick={() => handleUpdateStatus(reviewClaim.id, 'APPROVED')}
-                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all flex items-center gap-1.5"
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.4)] disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
                 >
                   <CheckCircle className="w-4 h-4" />
                   Approve Claim

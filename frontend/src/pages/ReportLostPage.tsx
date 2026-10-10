@@ -1,21 +1,24 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { 
   Upload, Lock, Sparkles, MapPin, Tag, CheckCircle2, 
-  ShieldAlert, FileText, AlertTriangle, ArrowRight, ShieldCheck 
+  ShieldAlert, ShieldCheck, Info, ChevronDown, ChevronUp, Image as ImageIcon,
+  Calendar, HelpCircle
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
+// Mandatory fields: description, incident_date
+// Optional: title (auto-derived), category, location_name, image_url, etc.
 const lostSchema = z.object({
-  title: z.string().min(3, 'Item title must be at least 3 characters'),
-  category: z.string().min(1, 'Please select a category'),
-  description: z.string().min(10, 'Please provide a detailed description (at least 10 characters)'),
-  location_name: z.string().min(2, 'Please specify the approximate location'),
-  incident_date: z.string().min(1, 'Date and approximate time is required'),
+  description: z.string().min(8, 'Please provide an item description (at least 8 characters)'),
+  incident_date: z.string().min(1, 'Date when item was lost is mandatory'),
+  title: z.string().optional(),
+  category: z.string().optional(),
+  location_name: z.string().optional(),
   brand: z.string().optional(),
   model: z.string().optional(),
   private_clues: z.string().optional(),
@@ -55,7 +58,7 @@ export const ReportLostPage: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submittedItem, setSubmittedItem] = useState<any | null>(null);
-
+  const [showOptionalFields, setShowOptionalFields] = useState(false);
   const [isGovtDoc, setIsGovtDoc] = useState(false);
 
   const {
@@ -68,13 +71,12 @@ export const ReportLostPage: React.FC = () => {
     resolver: zodResolver(lostSchema),
     defaultValues: {
       category: 'Electronics',
+      location_name: '',
       incident_date: new Date().toISOString().slice(0, 16),
       is_govt_id: false,
       govt_id_type: 'Aadhaar Card'
     },
   });
-
-  const selectedCategory = watch('category');
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -102,6 +104,9 @@ export const ReportLostPage: React.FC = () => {
       const created = await api.createItem({
         ...data,
         report_type: 'LOST',
+        title: data.title?.trim() || undefined,
+        category: data.category?.trim() || 'Other',
+        location_name: data.location_name?.trim() || 'Location Not Specified',
         image_url: imageUrl || undefined,
         custody_status: 'IN_POSSESSION',
         is_govt_id: isGovtDoc,
@@ -132,7 +137,7 @@ export const ReportLostPage: React.FC = () => {
         </div>
 
         <p className="text-xs text-slate-300 leading-relaxed max-w-md mx-auto">
-          Our multi-modal AI has generated high-dimensional semantic and visual embeddings for your item. Your official Digital LR Reference can be used to track recovery or present to authorities.
+          Automatic background AI matching has scanned newly found items. If a match score exceeds 50%, you will receive an instant notification in your Back2U inbox!
         </p>
 
         <div className="flex flex-wrap justify-center gap-3 pt-2">
@@ -141,7 +146,7 @@ export const ReportLostPage: React.FC = () => {
             className="px-6 py-2.5 rounded-full text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.4)] transition-all flex items-center gap-2"
           >
             <Sparkles className="w-4 h-4" />
-            View Report & AI Matches
+            View Report & Matches
           </button>
           <button
             onClick={() => navigate('/my-reports')}
@@ -157,140 +162,65 @@ export const ReportLostPage: React.FC = () => {
   return (
     <div className="relative z-10 max-w-3xl mx-auto px-4 sm:px-6 py-10 space-y-8">
       
-      {/* Title */}
+      {/* Page Header */}
       <div className="space-y-1">
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-400">
           <Tag className="w-4 h-4" />
-          <span>Citizen Lost Property Intimation</span>
+          <span>Report Lost Property</span>
         </div>
         <h1 className="text-3xl font-extrabold text-white tracking-tight">
-          Report a Lost Belonging
+          What did you lose?
         </h1>
         <p className="text-xs text-slate-400">
-          Provide accurate details to enable AI matching and challenge verification. Confidential clues are encrypted to safeguard rightful ownership.
+          Fill in the required information. Automatic AI matching runs in the background and notifies you when potential matches are found.
         </p>
       </div>
 
-      {/* Statutory Legal Guidance Notice (Compliant with Police Guidelines) */}
+      {/* Statutory Guidance */}
       <div className="p-4 rounded-2xl bg-blue-950/20 border border-blue-500/30 flex items-start gap-3.5 text-xs text-slate-300">
         <ShieldAlert className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
         <div className="space-y-1">
-          <strong className="text-blue-300 block">Notice regarding Lost Property vs. Criminal Theft:</strong>
+          <strong className="text-blue-300 block">Civil Lost Property Intimation:</strong>
           <p className="leading-relaxed text-slate-300">
-            This report generates an official <strong>Digital Lost Article Reference (LR Number)</strong> for civil recovery and duplicate issuance (compliant with Delhi & State Police citizen standards and Section 168/169 of the Indian Contract Act). If your item was snatched, extorted, or stolen in a crime, please also file an official <strong>e-FIR</strong> at your nearest police station.
+            This generates an official <strong>Digital Lost Article Reference (LR Number)</strong> compliant with citizen intimation standards. If your item was snatched or stolen, please also file an official <strong>e-FIR</strong> at your local police station.
           </p>
         </div>
       </div>
 
-      {/* Form Card */}
+      {/* Main Report Form */}
       <form
         onSubmit={handleSubmit(onSubmit)}
         className="p-6 md:p-8 rounded-2xl bg-[#091224]/90 border border-blue-900/35 space-y-6"
       >
-        {/* Basic Details Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* MANDATORY SECTION */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-blue-900/40">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-400"></span>
+              Mandatory Information
+            </h3>
+            <span className="text-[11px] text-slate-400">Required to register report</span>
+          </div>
+
+          {/* Description */}
           <div>
             <label className="block text-xs font-semibold text-slate-200 mb-1.5">
-              Item Name / Title *
+              Item Description *
             </label>
-            <input
-              {...register('title')}
-              type="text"
-              placeholder="e.g. Black Leather Bifold Wallet"
+            <textarea
+              {...register('description')}
+              rows={3}
+              placeholder="Describe the lost item clearly (e.g. Blue Dell Inspiron 15 laptop with a NASA sticker on the lid, or Black leather wallet)..."
               className="w-full px-4 py-2.5 rounded-xl bg-[#070D1A] border border-blue-900/50 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-400 transition-colors"
             />
-            {errors.title && <p className="text-xs text-red-400 mt-1">{errors.title.message}</p>}
+            {errors.description && <p className="text-xs text-red-400 mt-1">{errors.description.message}</p>}
           </div>
 
+          {/* Incident Date */}
           <div>
-            <label className="block text-xs font-semibold text-slate-200 mb-1.5">
-              Category *
-            </label>
-            <select
-              {...register('category')}
-              onChange={(e) => {
-                setValue('category', e.target.value);
-                if (e.target.value === 'Documents') setIsGovtDoc(true);
-              }}
-              className="w-full px-4 py-2.5 rounded-xl bg-[#070D1A] border border-blue-900/50 text-sm text-white focus:outline-none focus:border-blue-400 transition-colors"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c} className="bg-[#091224]">
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Government Identity Card / Document Protection Toggle */}
-        <div className="p-4 rounded-xl bg-purple-950/20 border border-purple-500/30 space-y-3">
-          <label className="flex items-center gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isGovtDoc}
-              onChange={(e) => setIsGovtDoc(e.target.checked)}
-              className="rounded bg-[#070D1A] border-purple-800 text-purple-600 focus:ring-0"
-            />
-            <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4" />
-              This is a Government Identity Card, Student ID, or Legal Document
-            </span>
-          </label>
-
-          {isGovtDoc && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Document Type</label>
-                <select
-                  {...register('govt_id_type')}
-                  className="w-full px-3 py-2 rounded-lg bg-[#070D1A] border border-purple-900/50 text-white"
-                >
-                  {GOVT_ID_TYPES.map((t) => (
-                    <option key={t} value={t} className="bg-[#091224]">{t}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">
-                  Card / Document Number (Auto-Masked)
-                </label>
-                <input
-                  {...register('masked_identifier')}
-                  type="text"
-                  placeholder="e.g. 5492 8192 1042 or ABCDE1234F"
-                  className="w-full px-3 py-2 rounded-lg bg-[#070D1A] border border-purple-900/50 text-white placeholder-slate-500 font-mono"
-                />
-                <span className="text-[10px] text-purple-300 mt-1 block">
-                  Numbers are automatically masked (e.g. XXXX-XXXX-1042) to strictly protect identity.
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Location & Time Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div>
-            <label className="block text-xs font-semibold text-slate-200 mb-1.5">
-              Lost Location (Campus Area / Building / Landmark) *
-            </label>
-            <div className="relative">
-              <MapPin className="absolute left-3.5 top-3 w-4 h-4 text-slate-400" />
-              <input
-                {...register('location_name')}
-                type="text"
-                placeholder="e.g. Central Library 2nd Floor"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#070D1A] border border-blue-900/50 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-400 transition-colors"
-              />
-            </div>
-            {errors.location_name && <p className="text-xs text-red-400 mt-1">{errors.location_name.message}</p>}
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-200 mb-1.5">
-              Approximate Date & Time Lost *
+            <label className="block text-xs font-semibold text-slate-200 mb-1.5 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-blue-400" />
+              Date & Time Lost *
             </label>
             <input
               {...register('incident_date')}
@@ -299,75 +229,29 @@ export const ReportLostPage: React.FC = () => {
             />
             {errors.incident_date && <p className="text-xs text-red-400 mt-1">{errors.incident_date.message}</p>}
           </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-xs font-semibold text-slate-200 mb-1.5">
-                Brand (Optional)
-              </label>
-              <input
-                {...register('brand')}
-                type="text"
-                placeholder="e.g. Apple"
-                className="w-full px-3 py-2.5 rounded-xl bg-[#070D1A] border border-blue-900/50 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-200 mb-1.5">
-                Model (Optional)
-              </label>
-              <input
-                {...register('model')}
-                type="text"
-                placeholder="e.g. Pro 2"
-                className="w-full px-3 py-2.5 rounded-xl bg-[#070D1A] border border-blue-900/50 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
-              />
-            </div>
-          </div>
         </div>
 
-        {/* Public Description */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-200 mb-1.5">
-            Public Description *
-          </label>
-          <textarea
-            {...register('description')}
-            rows={3}
-            placeholder="Describe the item's general appearance, color, size, and circumstances of loss..."
-            className="w-full px-4 py-2.5 rounded-xl bg-[#070D1A] border border-blue-900/50 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-400 transition-colors"
-          />
-          {errors.description && <p className="text-xs text-red-400 mt-1">{errors.description.message}</p>}
-        </div>
-
-        {/* Confidential Identifying Details (Privacy Boundary Rule) */}
-        <div className="p-4 rounded-xl bg-blue-950/25 border border-blue-500/25 space-y-2">
-          <div className="flex items-center gap-2">
-            <Lock className="w-4 h-4 text-blue-400" />
-            <label className="text-xs font-bold text-blue-300 uppercase tracking-wider">
-              Private Distinguishing Clues (Confidential to You)
-            </label>
+        {/* IMAGE UPLOAD (OPTIONAL BUT ENCOURAGED) */}
+        <div className="p-4 rounded-xl bg-blue-950/20 border border-blue-500/30 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-blue-400" />
+              <label className="text-xs font-bold text-white">
+                Item Photo (Optional — Highly Encouraged)
+              </label>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              Boosts AI Match Quality +40%
+            </span>
           </div>
           <p className="text-[11px] text-slate-400">
-            Never displayed publicly or in search results. Used exclusively to challenge prospective finders and verify ownership before handover.
+            A reference photo enables OpenCLIP multi-modal visual embedding for automated background matching against found items.
           </p>
-          <textarea
-            {...register('private_clues')}
-            rows={2}
-            placeholder="e.g. Tiny scrape on the left hinge, or initials 'RM' written in black marker..."
-            className="w-full px-3.5 py-2 rounded-lg bg-[#070D1A] border border-blue-900/50 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
-          />
-        </div>
 
-        {/* Photograph Upload */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-200 mb-1.5">
-            Reference Photograph (Optional)
-          </label>
-          <div className="flex items-center gap-4">
-            <label className="cursor-pointer flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0E1A33] border border-blue-500/30 text-xs font-semibold text-blue-300 hover:text-white hover:border-blue-400 transition-all">
+          <div className="flex items-center gap-4 pt-1">
+            <label className="cursor-pointer flex items-center gap-2 px-4 py-2 rounded-xl bg-[#0E1A33] border border-blue-500/30 text-xs font-semibold text-blue-300 hover:text-white hover:border-blue-400 transition-all">
               <Upload className="w-4 h-4" />
-              <span>{uploading ? 'Uploading...' : 'Upload Image'}</span>
+              <span>{uploading ? 'Uploading...' : 'Choose Photo'}</span>
               <input
                 type="file"
                 accept="image/*"
@@ -377,26 +261,179 @@ export const ReportLostPage: React.FC = () => {
               />
             </label>
             {imageUrl && (
-              <span className="text-xs text-emerald-400 flex items-center gap-1 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Image uploaded successfully
-              </span>
+              <div className="flex items-center gap-2">
+                <img src={imageUrl} alt="Uploaded" className="w-10 h-10 rounded-lg object-cover border border-emerald-500/50" />
+                <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Image Attached
+                </span>
+              </div>
             )}
           </div>
         </div>
 
-        {/* Submit Button */}
+        {/* ACCORDION / TOGGLE FOR OPTIONAL DETAILS */}
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={() => setShowOptionalFields(!showOptionalFields)}
+            className="w-full flex items-center justify-between py-2.5 px-4 rounded-xl bg-[#070D1A] border border-blue-900/40 text-xs font-semibold text-slate-300 hover:text-white transition-all"
+          >
+            <span className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-blue-400" />
+              Additional Details (Location, Category, Title, Clues)
+            </span>
+            {showOptionalFields ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+
+          {showOptionalFields && (
+            <div className="p-4 mt-3 rounded-xl bg-[#070D1A]/60 border border-blue-900/30 space-y-4">
+              
+              {/* Optional Title & Category */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Custom Title (Optional)
+                  </label>
+                  <input
+                    {...register('title')}
+                    type="text"
+                    placeholder="e.g. Dell Inspiron 15 Laptop"
+                    className="w-full px-3.5 py-2 rounded-lg bg-[#070D1A] border border-blue-900/50 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                  />
+                  <span className="text-[10px] text-slate-500">Auto-derived if left empty</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Category (Optional)
+                  </label>
+                  <select
+                    {...register('category')}
+                    onChange={(e) => {
+                      setValue('category', e.target.value);
+                      if (e.target.value === 'Documents') setIsGovtDoc(true);
+                    }}
+                    className="w-full px-3.5 py-2 rounded-lg bg-[#070D1A] border border-blue-900/50 text-xs text-white focus:outline-none focus:border-blue-400"
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c} className="bg-[#091224]">
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Optional Location */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-blue-400" />
+                  Approximate Lost Location (Optional)
+                </label>
+                <input
+                  {...register('location_name')}
+                  type="text"
+                  placeholder="e.g. Central Library 2nd Floor, Terminal 3 Gate 14"
+                  className="w-full px-3.5 py-2 rounded-lg bg-[#070D1A] border border-blue-900/50 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-400"
+                />
+              </div>
+
+              {/* Optional Brand & Model */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Brand (Optional)</label>
+                  <input
+                    {...register('brand')}
+                    type="text"
+                    placeholder="e.g. Apple / Dell"
+                    className="w-full px-3 py-2 rounded-lg bg-[#070D1A] border border-blue-900/50 text-xs text-white placeholder-slate-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">Model (Optional)</label>
+                  <input
+                    {...register('model')}
+                    type="text"
+                    placeholder="e.g. XPS 13"
+                    className="w-full px-3 py-2 rounded-lg bg-[#070D1A] border border-blue-900/50 text-xs text-white placeholder-slate-500"
+                  />
+                </div>
+              </div>
+
+              {/* Private Secret Clues */}
+              <div className="p-3.5 rounded-lg bg-blue-950/30 border border-blue-500/20 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 text-blue-400" />
+                  <label className="text-xs font-bold text-blue-300">
+                    Private Clues (Kept Confidential)
+                  </label>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Hidden from public listings. Only used to verify finders during recovery.
+                </p>
+                <textarea
+                  {...register('private_clues')}
+                  rows={2}
+                  placeholder="e.g. Small scratch on right corner, or red lanyard attached..."
+                  className="w-full px-3 py-1.5 rounded-lg bg-[#070D1A] border border-blue-900/50 text-xs text-white placeholder-slate-500"
+                />
+              </div>
+
+              {/* Government ID Toggle */}
+              <div className="p-3.5 rounded-lg bg-purple-950/20 border border-purple-500/20 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isGovtDoc}
+                    onChange={(e) => setIsGovtDoc(e.target.checked)}
+                    className="rounded bg-[#070D1A] border-purple-800 text-purple-600"
+                  />
+                  <span className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Government ID / Legal Document
+                  </span>
+                </label>
+
+                {isGovtDoc && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
+                    <div>
+                      <select
+                        {...register('govt_id_type')}
+                        className="w-full px-2.5 py-1.5 rounded bg-[#070D1A] border border-purple-900/50 text-white text-xs"
+                      >
+                        {GOVT_ID_TYPES.map((t) => (
+                          <option key={t} value={t} className="bg-[#091224]">{t}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <input
+                        {...register('masked_identifier')}
+                        type="text"
+                        placeholder="ID number (auto-masked)"
+                        className="w-full px-2.5 py-1.5 rounded bg-[#070D1A] border border-purple-900/50 text-white placeholder-slate-500 font-mono text-xs"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+        </div>
+
+        {/* Submit */}
         <div className="pt-2">
           <button
             type="submit"
             disabled={submitting}
             className="w-full py-3.5 rounded-xl font-bold text-xs text-white bg-blue-600 hover:bg-blue-500 shadow-[0_0_20px_rgba(37,99,235,0.4)] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            {submitting ? 'Registering Report...' : 'Submit Lost Report & Generate Digital LR Reference'}
+            {submitting ? 'Registering Report...' : 'Submit Lost Report (Background AI Matching Active)'}
           </button>
         </div>
       </form>
-
     </div>
   );
 };

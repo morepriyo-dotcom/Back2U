@@ -12,7 +12,7 @@ interface AuthContextType {
   register: (data: any) => Promise<void>;
   demoLogin: (role: string) => Promise<void>;
   sendPhoneOTP: (phone: string) => Promise<{ message: string; phone_number: string; expires_in_seconds: number; dev_sms_simulation?: string }>;
-  verifyPhoneOTP: (phone: string, otp: string, fullName?: string) => Promise<void>;
+  verifyPhoneOTP: (phone: string, otp: string, fullName?: string, firebaseIdToken?: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -33,12 +33,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     try {
       const userData = await api.getMe();
-      setUser(userData);
+      if (userData) {
+        setUser(userData);
+        localStorage.setItem('back2u_user_cache', JSON.stringify(userData));
+      }
     } catch (err) {
       console.warn('Failed to fetch user profile with stored token', err);
-      removeAuthToken();
-      setToken(null);
-      setUser(null);
+      const cached = localStorage.getItem('back2u_user_cache');
+      if (cached) {
+        try {
+          setUser(JSON.parse(cached));
+        } catch {
+          removeAuthToken();
+          setToken(null);
+          setUser(null);
+        }
+      } else {
+        removeAuthToken();
+        setToken(null);
+        setUser(null);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -55,6 +69,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAuthToken(res.access_token);
       setToken(res.access_token);
       setUser(res.user);
+      if (res.user) {
+        localStorage.setItem('back2u_user_cache', JSON.stringify(res.user));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -67,6 +84,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAuthToken(res.access_token);
       setToken(res.access_token);
       setUser(res.user);
+      if (res.user) {
+        localStorage.setItem('back2u_user_cache', JSON.stringify(res.user));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -79,6 +99,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAuthToken(res.access_token);
       setToken(res.access_token);
       setUser(res.user);
+      if (res.user) {
+        localStorage.setItem('back2u_user_cache', JSON.stringify(res.user));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -88,13 +111,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return await api.sendPhoneOTP(phone);
   };
 
-  const verifyPhoneOTP = async (phone: string, otp: string, fullName?: string) => {
+  const verifyPhoneOTP = async (phone: string, otp: string, fullName?: string, firebaseIdToken?: string) => {
     setIsLoading(true);
     try {
-      const res = await api.verifyPhoneOTP(phone, otp, fullName);
+      const res = await api.verifyPhoneOTP(phone, otp, fullName, firebaseIdToken);
       setAuthToken(res.access_token);
       setToken(res.access_token);
       setUser(res.user);
+      if (res.user) {
+        localStorage.setItem('back2u_user_cache', JSON.stringify(res.user));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -102,6 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     removeAuthToken();
+    localStorage.removeItem('back2u_user_cache');
     setToken(null);
     setUser(null);
   };

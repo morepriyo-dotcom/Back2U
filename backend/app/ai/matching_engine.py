@@ -66,12 +66,15 @@ class AIMatchingEngine:
             date_sim = calculate_date_score(query_item.incident_date, candidate.incident_date)
 
             # 5. Category compatibility multiplier
-            category_multiplier = 1.0
-            if query_item.category.lower() == candidate.category.lower():
+            query_cat = (query_item.category or "").lower().strip()
+            cand_cat = (candidate.category or "").lower().strip()
+            if query_cat == cand_cat:
                 category_multiplier = 1.05
+            elif "other" in query_cat or "other" in cand_cat:
+                category_multiplier = 0.85
             else:
-                # Incompatible categories penalize overall score
-                category_multiplier = 0.65
+                # Incompatible categories penalize overall ranking score
+                category_multiplier = 0.60
 
             # Dynamic weight renormalization when image is missing
             if has_images:
@@ -80,12 +83,15 @@ class AIMatchingEngine:
                 w_loc = self.w_loc
                 w_dt = self.w_date
             else:
-                # Renormalize without image
+                # Renormalize modalities without image so weights always sum to 1.0
                 sum_weights = self.w_text + self.w_loc + self.w_date
-                w_img = 0.0
-                w_txt = self.w_text / sum_weights
-                w_loc = self.w_loc / sum_weights
-                w_dt = self.w_date / sum_weights
+                if sum_weights > 0:
+                    w_img = 0.0
+                    w_txt = self.w_text / sum_weights
+                    w_loc = self.w_loc / sum_weights
+                    w_dt = self.w_date / sum_weights
+                else:
+                    w_img, w_txt, w_loc, w_dt = 0.0, 1.0, 0.0, 0.0
 
             raw_score = (
                 (w_img * img_sim) +
@@ -94,7 +100,7 @@ class AIMatchingEngine:
                 (w_dt * date_sim)
             ) * category_multiplier
 
-            # Clamp between 0.0 and 0.99 (Never 100% or absolute proof)
+            # Ranking score: explicitly treated as ranking relevance, never probability of ownership
             final_score = max(0.0, min(0.98, raw_score))
             score_percentage = int(round(final_score * 100))
 
@@ -115,14 +121,60 @@ class AIMatchingEngine:
                         "image_similarity_percent": int(round(img_sim * 100)) if has_images else None,
                         "location_proximity_percent": int(round(loc_sim * 100)),
                         "date_proximity_percent": int(round(date_sim * 100)),
-                        "same_category": query_item.category.lower() == candidate.category.lower()
+                        "same_category": query_cat == cand_cat
                     },
                     "safe_summary": f"{candidate.category} item reported near {candidate.location_name}.",
                     "suggested_next_action": "Verify distinguishing features through an ownership challenge."
                 })
 
-        # Sort descending by match score
+        # Sort descending by ranking score
         ranked_results.sort(key=lambda x: x["match_score"], reverse=True)
         return ranked_results
 
+    def evaluate_ranking(self, evaluation_dataset: List[Dict[str, Any]]) -> Dict[str, float]:
+        """
+        Measures ranking quality on a labelled evaluation dataset.
+        Computes Mean Reciprocal Rank (MRR), Hit@1, and Hit@3.
+        Do not fabricate metrics - computes directly from test pairs.
+        Each entry in evaluation_dataset:
+          {
+            "query_item": Item,
+            "candidates": List[Item],
+            "ground_truth_id": int
+          }
+        """
+        if not evaluation_dataset:
+            return {"mrr": 0.0, "hit_at_1": 0.0, "hit_at_3": 0.0, "total_queries": 0}
+
+        reciprocal_ranks = []
+        hits_1 = 0
+        hits_3 = 0
+
+        for sample in evaluation_dataset:
+            q_item = sample["query_item"]
+            cands = sample["candidates"]
+            gt_id = sample["ground_truth_id"]
+
+            ranked = self.rank_candidates(q_item, cands, min_score=0.0)
+            ranked_ids = [r["candidate_item_id"] for r in ranked]
+
+            if gt_id in ranked_ids:
+                rank = ranked_ids.index(gt_id) + 1 # 1-based rank
+                reciprocal_ranks.append(1.0 / rank)
+                if rank == 1:
+                    hits_1 += 1
+                if rank <= 3:
+                    hits_3 += 1
+            else:
+                reciprocal_ranks.append(0.0)
+
+        n = len(evaluation_dataset)
+        return {
+            "mrr": round(float(sum(reciprocal_ranks) / n), 4),
+            "hit_at_1": round(float(hits_1 / n), 4),
+            "hit_at_3": round(float(hits_3 / n), 4),
+            "total_queries": n
+        }
+
 matching_engine = AIMatchingEngine()
+

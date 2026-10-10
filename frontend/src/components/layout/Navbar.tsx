@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Search, Bell, ChevronDown, User as UserIcon, LogOut, ShieldCheck, Sparkles, PlusCircle } from 'lucide-react';
+import { Search, Bell, ChevronDown, User as UserIcon, LogOut, ShieldCheck, Sparkles, PlusCircle, Database } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
+import { FirebaseStatusModal } from '../ui/FirebaseStatusModal';
+import { isFirebaseConfigured } from '../../services/firebase';
 
 interface NavbarProps {
   onOpenDemoModal?: () => void;
@@ -12,6 +14,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDemoModal }) => {
   const { user, isAuthenticated, isAdmin, logout, demoLogin } = useAuth();
   const { unreadCount } = useNotifications();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [firebaseModalOpen, setFirebaseModalOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -94,6 +97,21 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDemoModal }) => {
               </span>
             )}
           </Link>
+
+          {/* Firebase Database Status Button */}
+          <button
+            onClick={() => setFirebaseModalOpen(true)}
+            title="Firebase Database & Realtime Status"
+            className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+              isFirebaseConfigured
+                ? 'bg-amber-500/10 border-amber-500/40 text-amber-300 hover:border-amber-400 hover:text-white shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                : 'bg-slate-800/60 border-slate-700/60 text-slate-300 hover:border-blue-500/40 hover:text-white'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden lg:inline">Firebase DB</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${isFirebaseConfigured ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+          </button>
 
           {/* Demo Personas Switcher Button */}
           <button
@@ -223,6 +241,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDemoModal }) => {
           )}
         </div>
       </div>
+
+      {/* Firebase Database Connection Modal */}
+      <FirebaseStatusModal 
+        isOpen={firebaseModalOpen} 
+        onClose={() => setFirebaseModalOpen(false)} 
+      />
     </header>
   );
 };

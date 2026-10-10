@@ -58,22 +58,44 @@ def submit_claim(
 
     is_disputed = other_claims_count > 0
 
+    # Detect if item is valuable or sensitive
+    is_valuable = (
+        item.is_govt_id
+        or any(cat_keyword in (item.category or "").lower() for cat_keyword in ["phone", "electronic", "wallet", "document", "id", "card", "key", "vehicle", "laptop"])
+        or any(word in (item.title or "").lower() for word in ["iphone", "samsung", "macbook", "laptop", "gold", "watch", "wallet", "passport", "aadhaar", "pan", "car key"])
+    )
+
+    # Ownership proof evaluation:
+    # Accept 1 strong item-specific proof: serial number/IMEI, purchase receipt, or detailed unique secret clues
+    has_strong_proof = bool(
+        (claim_in.serial_number_provided and len(claim_in.serial_number_provided.strip()) >= 4)
+        or claim_in.purchase_receipt_url
+        or (claim_in.challenge_answers and len(claim_in.challenge_answers.strip()) >= 20)
+    )
+
     # Basic heuristic risk scoring (0.0 to 1.0)
-    risk = 0.15
+    risk = 0.10
     if is_disputed:
         risk += 0.35
-    if not claim_in.purchase_receipt_url and not claim_in.serial_number_provided:
-        risk += 0.15
+    if not has_strong_proof:
+        # Initial proof is insufficient - elevated risk triggers additional verification requirement
+        risk += 0.30
     if current_user.penalty_points > 0:
         risk += 0.20
-    if len(claim_in.challenge_answers.strip()) < 15:
+    if is_valuable and not has_strong_proof:
+        # Sensitive/valuable items without proof are flagged for enhanced verification / authority escrow
         risk += 0.20
     risk = min(0.95, risk)
+
+    # Determine initial status: if proof is insufficient or suspicious, require more evidence
+    initial_status = "SUBMITTED"
+    if not has_strong_proof and is_valuable:
+        initial_status = "MORE_EVIDENCE_REQUIRED"
 
     new_claim = Claim(
         item_id=item.id,
         claimant_id=current_user.id,
-        status="SUBMITTED",
+        status=initial_status,
         challenge_answers=claim_in.challenge_answers,
         evidence_photos=json.dumps(claim_in.evidence_photos or []),
         purchase_receipt_url=claim_in.purchase_receipt_url,
@@ -105,6 +127,22 @@ def submit_claim(
         resource_id=new_claim.id,
         details=f"Claim submitted for item #{item.id} '{item.title}', risk: {risk}"
     )
+
+    # Sync to Firestore if connected
+    try:
+        from app.services.firebase_db import sync_claim_to_firestore
+        sync_claim_to_firestore({
+            "id": new_claim.id,
+            "item_id": new_claim.item_id,
+            "claimant_id": new_claim.claimant_id,
+            "status": new_claim.status,
+            "risk_score": new_claim.risk_score,
+            "is_disputed": new_claim.is_disputed,
+            "created_at": new_claim.created_at,
+            "updated_at": new_claim.updated_at
+        })
+    except Exception:
+        pass
 
     return _format_claim_response(new_claim, current_user)
 
@@ -170,15 +208,42 @@ def update_claim_status(
     if target_status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid claim status: {target_status}")
 
-    # Disputed items cannot be approved unilaterally by finder
-    if target_status == "APPROVED" and claim.is_disputed and not is_admin:
+    # State machine transition rules
+    VALID_TRANSITIONS = {
+        "SUBMITTED": {"EVIDENCE_REVIEW", "MORE_EVIDENCE_REQUIRED", "MANUAL_REVIEW", "APPROVED", "REJECTED"},
+        "EVIDENCE_REVIEW": {"MORE_EVIDENCE_REQUIRED", "MANUAL_REVIEW", "APPROVED", "REJECTED"},
+        "MORE_EVIDENCE_REQUIRED": {"EVIDENCE_REVIEW", "MANUAL_REVIEW", "APPROVED", "REJECTED"},
+        "MANUAL_REVIEW": {"EVIDENCE_REVIEW", "APPROVED", "REJECTED", "ESCALATED"},
+        "APPROVED": {"HANDOVER_PENDING"},
+        "HANDOVER_PENDING": {"RETURN_CONFIRMED", "REJECTED", "CLOSED"},
+        "RETURN_CONFIRMED": {"CLOSED"},
+        "REJECTED": set(),
+        "CLOSED": set(),
+        "ESCALATED": {"APPROVED", "REJECTED", "MANUAL_REVIEW"}
+    }
+
+    if claim.status in ["REJECTED", "CLOSED"] and not is_admin:
         raise HTTPException(
-            status_code=400,
-            detail="Disputed items with multiple claimants require administrator review before approval."
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Claim is finalized ({claim.status}) and cannot be modified without administrative authorization."
+        )
+
+    allowed_next = VALID_TRANSITIONS.get(claim.status, set())
+    if target_status not in allowed_next and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid state transition from '{claim.status}' to '{target_status}'."
+        )
+
+    # Disputed or high-risk claims require administrator review before approval
+    if target_status == "APPROVED" and (claim.is_disputed or claim.status == "MANUAL_REVIEW") and not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Disputed or manual-review claims with conflicting claimants require administrator adjudication before approval."
         )
 
     claim.status = target_status
-    if status_update.admin_notes:
+    if status_update.admin_notes and is_admin:
         claim.admin_notes = status_update.admin_notes
     if status_update.rejection_reason:
         claim.rejection_reason = status_update.rejection_reason
@@ -188,16 +253,7 @@ def update_claim_status(
         claim.status = "HANDOVER_PENDING"
         claim.item.status = "RECOVERY_IN_PROGRESS"
     elif target_status == "REJECTED":
-        # Check if rejected due to false claim
-        if status_update.rejection_reason and "fraud" in status_update.rejection_reason.lower():
-            trust_service.apply_penalty(
-                db=db,
-                user=claim.claimant,
-                penalty_amount=settings.PENALTY_FALSE_CLAIM,
-                reason=f"Rejected claim on item #{claim.item_id}: {status_update.rejection_reason}",
-                related_claim_id=claim.id
-            )
-        # Revert item status if no other active claims
+        # Revert item status if no other active claims exist
         other_active = db.query(Claim).filter(
             Claim.item_id == claim.item_id,
             Claim.id != claim.id,
@@ -218,30 +274,51 @@ def update_claim_status(
         details=f"Status set to {target_status} by {current_user.email}. Reason: {status_update.rejection_reason or ''}"
     )
 
+    # Sync claim update to Firestore
+    try:
+        from app.services.firebase_db import sync_claim_to_firestore
+        sync_claim_to_firestore({
+            "id": claim.id,
+            "item_id": claim.item_id,
+            "claimant_id": claim.claimant_id,
+            "status": claim.status,
+            "risk_score": claim.risk_score,
+            "is_disputed": claim.is_disputed,
+            "finder_confirmed": claim.finder_confirmed,
+            "owner_confirmed": claim.owner_confirmed,
+            "handover_date": claim.handover_date,
+            "points_awarded": claim.points_awarded,
+            "updated_at": claim.updated_at,
+            "closed_at": claim.closed_at
+        })
+    except Exception:
+        pass
+
     return _format_claim_response(claim, current_user)
 
 def _format_claim_response(claim: Claim, user: Optional[User]) -> dict:
     is_claimant = user and claim.claimant_id == user.id
     is_finder = user and claim.item and claim.item.reporter_id == user.id
     is_admin = user and user.role == "admin"
+    authorized_for_evidence = is_claimant or is_finder or is_admin
 
     return {
         "id": claim.id,
         "item_id": claim.item_id,
         "claimant_id": claim.claimant_id,
         "status": claim.status,
-        "challenge_answers": claim.challenge_answers if (is_claimant or is_finder or is_admin) else None,
-        "evidence_photos": claim.evidence_photos,
-        "purchase_receipt_url": claim.purchase_receipt_url if (is_claimant or is_finder or is_admin) else None,
-        "serial_number_provided": claim.serial_number_provided if (is_claimant or is_finder or is_admin) else None,
-        "supporting_notes": claim.supporting_notes,
+        "challenge_answers": claim.challenge_answers if authorized_for_evidence else None,
+        "evidence_photos": claim.evidence_photos if authorized_for_evidence else None,
+        "purchase_receipt_url": claim.purchase_receipt_url if authorized_for_evidence else None,
+        "serial_number_provided": claim.serial_number_provided if authorized_for_evidence else None,
+        "supporting_notes": claim.supporting_notes if authorized_for_evidence else None,
         "risk_score": claim.risk_score,
         "is_disputed": claim.is_disputed,
         "admin_notes": claim.admin_notes if is_admin else None,
         "rejection_reason": claim.rejection_reason,
         "finder_confirmed": claim.finder_confirmed,
         "owner_confirmed": claim.owner_confirmed,
-        "handover_meeting_notes": claim.handover_meeting_notes,
+        "handover_meeting_notes": claim.handover_meeting_notes if authorized_for_evidence else None,
         "handover_date": claim.handover_date,
         "points_awarded": claim.points_awarded,
         "created_at": claim.created_at,
