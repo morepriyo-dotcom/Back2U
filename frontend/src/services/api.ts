@@ -25,6 +25,20 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     const response = await fetch(url, { ...options, headers });
 
     if (!response.ok) {
+      // If the response is a 404 HTML (e.g. Vite SPA returning index.html for a backend route)
+      // or if backend is offline, trigger seamless Firebase Cloud fallback for auth and reporting
+      if (response.status === 404) {
+        // Try direct backend port 8000 if currently relative
+        if (!API_BASE && window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') {
+          try {
+            const directResp = await fetch(`http://127.0.0.1:8000${endpoint}`, { ...options, headers });
+            if (directResp.ok) return directResp.json();
+          } catch {}
+        }
+        // Fall back to cloud handler
+        throw new TypeError('Failed to fetch (Route 404 fallback)');
+      }
+
       let errorDetail = 'An error occurred';
       try {
         const errData = await response.json();
@@ -46,9 +60,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
     return response.json();
   } catch (netErr: any) {
-    // If backend server is unreachable (e.g. running on Vercel without a backend URL configured)
-    if (netErr.name === 'TypeError' && (netErr.message === 'Failed to fetch' || netErr.message.includes('fetch'))) {
-      console.warn(`[API Network Fallback] Backend unreachable at ${url}. Operating directly via Cloud Firestore.`);
+    // If backend server is unreachable or returned 404 route
+    if (netErr.name === 'TypeError' || (netErr.message && (netErr.message.includes('fetch') || netErr.message.includes('404')))) {
+      console.warn(`[API Network Fallback] Backend unreachable or 404 at ${url}. Operating directly via Cloud Firestore.`);
       // Check for auth routes and provide direct client-side fallback
       if (endpoint === '/api/auth/phone/send-otp') {
         const body = options.body ? JSON.parse(options.body as string) : {};
